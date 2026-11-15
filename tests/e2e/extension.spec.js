@@ -1,8 +1,10 @@
-/* eslint-disable no-unused-vars */
 const { test, expect, chromium } = require('@playwright/test');
 const path = require('path');
 
 const extensionPath = path.resolve(__dirname, '../../');
+
+// A site that sends X-Frame-Options and refuses to be framed by default.
+const BLOCKED_SITE = 'https://www.google.com/';
 
 test.describe('Nozo Extension E2E', () => {
     let context;
@@ -17,117 +19,98 @@ test.describe('Nozo Extension E2E', () => {
                 `--load-extension=${extensionPath}`
             ]
         });
+        // Wait for the extension service worker so its listeners are ready.
+        if (context.serviceWorkers().length === 0) {
+            await context.waitForEvent('serviceworker');
+        }
         page = await context.newPage();
+        await page.goto('https://example.com');
     });
 
     test.afterEach(async () => {
         await context.close();
     });
 
-    test('extension loads and injects elements', async () => {
-        await page.goto('https://example.com');
-
-        const dropZone = page.locator('#nozo-drop-zone');
-        await expect(dropZone).toBeAttached();
-
-        const overlay = page.locator('#nozo-overlay-container');
-        await expect(overlay).toBeAttached();
-    });
-
-    test('drag and drop link opens modal', async () => {
-        await page.goto('https://example.com');
-        const link = page.locator('a').first();
-        const dropZone = page.locator('#nozo-drop-zone');
-
-        await page.evaluate(async () => {
-            const link = document.querySelector('a');
-            const dropZone = document.getElementById('nozo-drop-zone');
-            const linkHref = link.href;
-
-            // Use DragEvent for proper dataTransfer support
-            const dragStartEvent = new DragEvent('dragstart', { bubbles: true, cancelable: true });
-            Object.defineProperty(dragStartEvent, 'dataTransfer', {
-                value: {
-                    setData: () => { },
-                    effectAllowed: 'none'
-                }
-            });
-            link.dispatchEvent(dragStartEvent);
-
-            // Wait for the setTimeout in dragstart handler to complete
-            await new Promise(resolve => setTimeout(resolve, 150));
-
-            const dropEvent = new DragEvent('drop', { bubbles: true, cancelable: true });
-            Object.defineProperty(dropEvent, 'dataTransfer', {
-                value: {
-                    getData: (type) => type === 'text/uri-list' || type === 'URL' || type === 'text/plain' ? linkHref : ''
-                }
-            });
-            dropZone.dispatchEvent(dropEvent);
-        });
-
-        const overlay = page.locator('#nozo-overlay-container');
-        await expect(overlay).toHaveClass(/visible/);
-
-        const iframe = page.locator('#nozo-iframe');
-        await expect(iframe).toHaveAttribute('src', /iana\.org/);
-    });
-
-    test('header stripping allows X-Frame-Options blocked sites', async () => {
-
-        await page.goto('https://example.com');
-
-        await page.evaluate(() => {
+    async function addLink(href, id) {
+        await page.evaluate(({ href, id }) => {
             const link = document.createElement('a');
-            link.href = 'https://www.google.com';
-            link.id = 'test-blocked-link';
-            link.innerText = 'Test Link';
+            link.href = href;
+            link.id = id;
+            link.textContent = id;
             document.body.appendChild(link);
-        });
+        }, { href, id });
+        return page.locator(`#${id}`);
+    }
 
-        const dropZone = page.locator('#nozo-drop-zone');
-        const link = page.locator('#test-blocked-link');
-        await page.evaluate(async () => {
-            const link = document.getElementById('test-blocked-link');
-            const dropZone = document.getElementById('nozo-drop-zone');
-            const linkHref = link.href;
+    function frameFor(urlPart) {
+        return page.frames().find((f) => f !== page.mainFrame() && f.url().includes(urlPart));
+    }
 
-            // 1. Trigger dragstart on the link using DragEvent
-            const dragStartEvent = new DragEvent('dragstart', {
-                bubbles: true,
-                cancelable: true
-            });
-            // Mock dataTransfer since we are dispatching manually
-            Object.defineProperty(dragStartEvent, 'dataTransfer', {
-                value: {
-                    setData: () => { },
-                    effectAllowed: 'none'
-                }
-            });
-            link.dispatchEvent(dragStartEvent);
+    test('extension injects the overlay', async () => {
+        await expect(page.locator('#nozo-overlay-container')).toBeAttached();
+        await expect(page.locator('#nozo-drop-zone')).toHaveCount(0);
+    });
 
-            // Wait for the setTimeout in dragstart handler to complete
-            await new Promise(resolve => setTimeout(resolve, 150));
+    test('Alt + click on a link opens the modal without navigating', async () => {
+        await page.locator('a').first().click({ modifiers: ['Alt'] });
 
-            // 2. Trigger drop on the drop zone using DragEvent
-            const dropEvent = new DragEvent('drop', {
-                bubbles: true,
-                cancelable: true
-            });
-            Object.defineProperty(dropEvent, 'dataTransfer', {
-                value: {
-                    getData: (type) => type === 'text/uri-list' || type === 'URL' || type === 'text/plain' ? linkHref : ''
-                }
-            });
-            dropZone.dispatchEvent(dropEvent);
-        });
+        await expect(page.locator('#nozo-overlay-container')).toHaveClass(/visible/);
+        await expect(page.locator('#nozo-iframe')).toHaveAttribute('src', /iana\.org/);
+        expect(page.url()).toContain('example.com');
+    });
 
-        const overlay = page.locator('#nozo-overlay-container');
-        await expect(overlay).toHaveClass(/visible/);
+    test('a plain click still navigates normally', async () => {
+        await Promise.all([
+            page.waitForURL(/iana\.org/),
+            page.locator('a').first().click(),
+        ]);
+        await expect(page.locator('#nozo-overlay-container')).not.toHaveClass(/visible/);
+    });
 
-        const iframe = page.locator('#nozo-iframe');
+    test('Escape closes the modal', async () => {
+        await page.locator('a').first().click({ modifiers: ['Alt'] });
+        await expect(page.locator('#nozo-overlay-container')).toHaveClass(/visible/);
 
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#nozo-overlay-container')).not.toHaveClass(/visible/);
+        await expect(page.locator('#nozo-iframe')).toHaveAttribute('src', 'about:blank');
+    });
 
-        await page.waitForTimeout(2000);
+    test('previewed site loads even if it sends X-Frame-Options', async () => {
+        const link = await addLink(BLOCKED_SITE, 'blocked-link');
+        await link.click({ modifiers: ['Alt'] });
+
+        await expect(page.locator('#nozo-overlay-container')).toHaveClass(/visible/);
+        await expect.poll(() => Boolean(frameFor('google.')), { timeout: 10000 }).toBe(true);
+    });
+
+    test('other iframes keep their X-Frame-Options protection', async () => {
+        // A page-created iframe (no Alt + click) must still be blocked.
+        await page.evaluate((src) => {
+            const f = document.createElement('iframe');
+            f.id = 'page-frame';
+            f.src = src;
+            document.body.appendChild(f);
+        }, BLOCKED_SITE);
+
+        await page.waitForTimeout(3000);
+        expect(frameFor('google.')).toBeUndefined();
+    });
+
+    test('protection is restored after closing the preview', async () => {
+        const link = await addLink(BLOCKED_SITE, 'blocked-link');
+        await link.click({ modifiers: ['Alt'] });
+        await expect.poll(() => Boolean(frameFor('google.')), { timeout: 10000 }).toBe(true);
+
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(800); // close animation + rule removal
+
+        await page.evaluate((src) => {
+            const f = document.createElement('iframe');
+            f.src = src;
+            document.body.appendChild(f);
+        }, BLOCKED_SITE);
+        await page.waitForTimeout(3000);
+        expect(frameFor('google.')).toBeUndefined();
     });
 });

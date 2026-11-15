@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Nozo",
     "version": "1.0.10",
-    "description": "Drag and Drop links to peek at them in a modal window.",
+    "description": "Alt + click (Option + click on macOS) any link to peek at it in a modal window.",
     "browser_specific_settings": {
         "gecko": {
             "id": "nozo@z3r0.github.io",
@@ -20,13 +20,8 @@
         "128": "icons/icon128.png"
     },
     "permissions": [
-        "declarativeNetRequest",
-        "storage"
+        "declarativeNetRequest"
     ],
-    "options_ui": {
-        "page": "options.html",
-        "open_in_tab": true
-    },
     "host_permissions": [
         "*://*/*"
     ],
@@ -47,16 +42,6 @@
                 "styles.css"
             ],
             "run_at": "document_idle"
-        }
-    ],
-    "web_accessible_resources": [
-        {
-            "resources": [
-                "icon.png"
-            ],
-            "matches": [
-                "<all_urls>"
-            ]
         }
     ]
 }

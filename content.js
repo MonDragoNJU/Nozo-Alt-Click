@@ -1,28 +1,61 @@
 // Nozo Content Script
+//
+// Alt + click (Option + click on macOS) on any link opens it in a preview
+// modal instead of navigating.
 
-// Cross-browser storage API
-const storage = typeof browser !== 'undefined' ? browser.storage : chrome.storage;
+const runtimeAPI = (typeof browser !== 'undefined' ? browser : chrome).runtime;
 
-const DEFAULT_POSITION = 'bottom-center';
+/**
+ * Returns the http(s) URL to preview for a click event, or null if the click
+ * should be left alone.
+ */
+function getPreviewUrl(event) {
+    // Only real user clicks: page scripts must not be able to trigger a
+    // preview (which relaxes framing protections for that domain).
+    if (!event || !event.isTrusted) return null;
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return null;
+    if (event.button !== 0) return null;
 
-async function loadDropZonePosition() {
+    let target = event.target;
+    if (target && target.nodeType === 3) target = target.parentNode;
+    if (!target || typeof target.closest !== 'function') return null;
+
+    const anchor = target.closest('a[href]');
+    if (!anchor) return null;
+
+    // SVG <a> elements expose href as an SVGAnimatedString.
+    const rawHref = typeof anchor.href === 'string'
+        ? anchor.href
+        : anchor.href && anchor.href.baseVal;
+    if (!rawHref) return null;
+
+    let url;
     try {
-        const result = await storage.sync.get({ dropZonePosition: DEFAULT_POSITION });
-        return result.dropZonePosition || DEFAULT_POSITION;
+        url = new URL(rawHref, document.baseURI);
+    } catch {
+        return null;
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        console.warn('Nozo: Blocked potentially unsafe URL:', rawHref);
+        return null;
+    }
+    return url.href;
+}
+
+async function sendToBackground(message) {
+    try {
+        const response = await runtimeAPI.sendMessage(message);
+        return Boolean(response && response.ok);
     } catch (err) {
-        console.warn('Nozo: Could not load settings, using defaults', err);
-        return DEFAULT_POSITION;
+        console.warn('Nozo: Background request failed', err);
+        return false;
     }
 }
 
-async function initNozo() {
+function initNozo() {
     if (document.getElementById('nozo-overlay-container')) {
-        return;
+        return null;
     }
-
-    const positionEntireWindow = 'entire-window';
-    // Load user settings
-    const dropZonePosition = await loadDropZonePosition();
 
     // Build overlay container
     const overlayContainer = document.createElement('div');
@@ -67,27 +100,55 @@ async function initNozo() {
     wrapper.appendChild(modal);
     overlayContainer.appendChild(wrapper);
 
-    const dropZone = document.createElement('div');
-    dropZone.id = 'nozo-drop-zone';
-    dropZone.className = `nozo-position-${dropZonePosition}`;
-    dropZone.textContent = 'Drop here to Nozo';
-
     document.body.appendChild(overlayContainer);
-    document.body.appendChild(dropZone);
 
     const overlay = overlayContainer;
+    let currentUrl = null;
+    let closeTimer = null;
+    let frameRuleActive = false;
+
+    function revokeFrameRule() {
+        if (!frameRuleActive) return;
+        frameRuleActive = false;
+        sendToBackground({ action: 'nozo:revokeFrame' });
+    }
 
     function closeNozo() {
+        if (!currentUrl) return;
+        currentUrl = null;
         overlay.classList.remove('visible');
-        setTimeout(() => {
+        clearTimeout(closeTimer);
+        closeTimer = setTimeout(() => {
             iframe.src = 'about:blank';
+            // Restore framing protections for this tab.
+            revokeFrameRule();
         }, 350);
     }
 
-    function openNozo(url) {
-        iframe.src = url;
+    async function openNozo(url) {
+        clearTimeout(closeTimer);
+        currentUrl = url;
         overlay.classList.add('visible');
+        // Allow this domain to be framed in this tab before loading it.
+        // If it fails, still try: many sites allow framing anyway.
+        frameRuleActive = true;
+        await sendToBackground({ action: 'nozo:allowFrame', url });
+        if (currentUrl === url) {
+            iframe.src = url;
+        }
     }
+
+    function handleClick(event) {
+        const url = getPreviewUrl(event);
+        if (!url) return;
+        // Stop the normal navigation (and Chrome's Alt+click "download link").
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        openNozo(url);
+    }
+
+    // Capture phase so we run before the page's own (e.g. SPA router) handlers.
+    window.addEventListener('click', handleClick, true);
 
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeNozo();
@@ -96,13 +157,14 @@ async function initNozo() {
     closeBtn.addEventListener('click', closeNozo);
 
     maxBtn.addEventListener('click', () => {
-        window.open(iframe.src, '_blank');
+        if (currentUrl) window.open(currentUrl, '_blank', 'noopener');
         closeNozo();
     });
 
     copyBtn.addEventListener('click', async () => {
+        if (!currentUrl) return;
         try {
-            await navigator.clipboard.writeText(iframe.src);
+            await navigator.clipboard.writeText(currentUrl);
             copyBtn.innerHTML = checkIcon;
             copyBtn.classList.add('copied');
             setTimeout(() => {
@@ -120,85 +182,15 @@ async function initNozo() {
         }
     });
 
-    let draggedLink = null;
+    // Never leave framing protections relaxed after leaving the page.
+    window.addEventListener('pagehide', revokeFrameRule);
 
-    document.addEventListener('dragstart', (e) => {
-        let target = e.target;
-        if (target.nodeType === 3) target = target.parentNode;
-
-        const anchor = target.closest('a');
-
-        if (anchor && anchor.href) {
-            setTimeout(() => {
-                draggedLink = anchor.href;
-                dropZone.classList.add('active');
-
-                e.dataTransfer.effectAllowed = 'copy';
-                e.dataTransfer.setData('text/plain', anchor.href);
-                e.dataTransfer.setData('text/uri-list', anchor.href);
-            }, dropZonePosition === positionEntireWindow ? 100 : 0);
-        }
-    });
-
-    document.addEventListener('dragend', () => {
-        setTimeout(() => {
-            draggedLink = null;
-            if (dropZone) {
-                dropZone.classList.remove('active');
-                dropZone.classList.remove('hovered');
-            }
-        }, 100);
-    });
-
-    dropZone.addEventListener('dragenter', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('hovered');
-    });
-
-    dropZone.addEventListener('dragleave', (e) => {
-        if (e.relatedTarget && !dropZone.contains(e.relatedTarget)) {
-            dropZone.classList.remove('hovered');
-        }
-    });
-
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        e.dataTransfer.dropEffect = 'copy';
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dropZone.classList.remove('active');
-        dropZone.classList.remove('hovered');
-
-        const url = draggedLink || e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('URL') || e.dataTransfer.getData('text/plain');
-
-        if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
-            openNozo(url);
-        } else {
-            console.warn('Nozo: Blocked potentially unsafe URL:', url);
-        }
-
-        draggedLink = null;
-    });
-
-    // Provide global for E2E testing if needed
-    window.openNozo = openNozo;
-
-    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
-        chrome.runtime.onMessage.addListener((request) => {
-            if (request.action === "openNozo" && request.url) {
-                openNozo(request.url);
-            }
-        });
-    }
+    return { openNozo, closeNozo, handleClick };
 }
 
 // Export for testing or auto-run
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { initNozo };
+    module.exports = { initNozo, getPreviewUrl };
 } else {
     initNozo();
 }

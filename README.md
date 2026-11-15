@@ -21,20 +21,20 @@
 </p>
 
 <p align="center">
-  Preview links instantly without leaving your current context. Nozo provides a seamless, secure, and lightweight modal window for peeking at content via drag-and-drop interactions.
+  Preview links instantly without leaving your current context. Hold <kbd>Alt</kbd> (<kbd>Option</kbd> on macOS) and click any link to peek at it in a lightweight modal window.
 </p>
 
 <br>
 
 ## Overview
 
-Nozo enhances your browsing workflow by allowing you to "peek" at links before navigating. Simply drag any link to the designated drop zone to open it in a non-intrusive modal overlay. Designed with security and performance in mind, Nozo ensures a safe and fluid experience.
+Nozo enhances your browsing workflow by allowing you to "peek" at links before navigating. Simply <kbd>Alt</kbd> + click any link to open it in a non-intrusive modal overlay. A normal click keeps working as usual. Close the preview with <kbd>Esc</kbd>, the close button, or by clicking outside it.
 
 ## Key Features
 
-*   **Seamless Interaction**: Drag and drop mechanic preventing accidental triggers.
+*   **Seamless Interaction**: <kbd>Alt</kbd> + click to preview; regular clicks are untouched. Only real user clicks trigger a preview — page scripts cannot.
 *   **Security First**: Automatically sanitizes URLs and blocks unsafe protocols like `javascript:`.
-*   **Privacy Focused**: Modifies necessary headers locally to allow standard framing without tracking or external servers.
+*   **Scoped Header Handling**: To let a site load inside the preview, Nozo removes its `X-Frame-Options` / `Content-Security-Policy` headers **only for the domain being previewed, only in that tab, and only while the preview is open**. Every other iframe on every other site keeps its clickjacking protection. Everything happens locally, with no tracking or external servers.
 *   **Lightweight**: Minimal resource footprint with no background processes when idle.
 
 ## Installation
@@ -65,6 +65,10 @@ Nozo enhances your browsing workflow by allowing you to "peek" at links before n
     cd nozo
     ```
 2.  Follow steps 4-6 above, selecting the repository root directory.
+
+### Known limitations
+*   On some Linux desktops <kbd>Alt</kbd> + click is captured by the window manager (to move windows) before it reaches the browser. Disable that shortcut or change its modifier in your desktop settings.
+*   If a previewed page redirects to a completely different domain, that second domain may refuse to load inside the preview. Use the "Open in New Tab" button in that case.
 
 ## Development
 
