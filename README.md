@@ -2,7 +2,6 @@
   <img src="icons/image.png" alt="Nozo Logo" width="128" height="128">
 </p>
 
-
 <p align="center">
   <a href="https://github.com/RayZ3R0/nozo/releases"><img src="https://img.shields.io/github/v/release/RayZ3R0/nozo?style=flat-square" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/RayZ3R0/nozo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/RayZ3R0/nozo?style=flat-square" alt="GitHub License"></a>
