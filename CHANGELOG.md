@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.1.0] - 2026-11-16
 ### Changed
 - **Alt + Click to Preview**: Links are now previewed with Alt + click (Option + click on macOS) instead of drag and drop. Normal clicks are unaffected, and synthetic clicks from page scripts are ignored.
 
@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - **Scoped header stripping**: Previously a global, persistent rule removed `X-Frame-Options` and `Content-Security-Policy` from every iframe on every site, disabling clickjacking protection browser-wide. Headers are now removed through a session rule limited to the previewed domain, the current tab, and the lifetime of the preview. The old global rule is deleted automatically on update.
 - "Open in New Tab" now uses `noopener`.
+
+### Fixed
+- CI: pinned GitHub Actions runners to Ubuntu 24.04 (Playwright 1.57 does not support Ubuntu 26.04).
 
 ## [1.0.10] - 2025-12-21
 ### Added
