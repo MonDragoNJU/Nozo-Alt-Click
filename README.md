@@ -2,6 +2,7 @@
   <img src="icons/image.png" alt="Nozo Logo" width="128" height="128">
 </p>
 
+
 <p align="center">
   <a href="https://github.com/RayZ3R0/nozo/releases"><img src="https://img.shields.io/github/v/release/RayZ3R0/nozo?style=flat-square" alt="GitHub release (latest by date)"></a>
   <a href="https://github.com/RayZ3R0/nozo/blob/main/LICENSE"><img src="https://img.shields.io/github/license/RayZ3R0/nozo?style=flat-square" alt="GitHub License"></a>
@@ -12,6 +13,9 @@
 
 <h1 align="center">Nozo</h1>
 
+> Fork of [RayZ3R0/nozo](https://github.com/RayZ3R0/nozo). Main changes:
+> - **Alt + Click** (Option + Click on macOS) replaces drag and drop.
+> - **Safer framing:** `X-Frame-Options` / `Content-Security-Policy` are removed only for the previewed domain, only in the current tab, and only while the preview is open — instead of on every iframe of every site.
 <p align="center">
   <strong>Effortless Link Previewing for Modern Browsers</strong>
 </p>
